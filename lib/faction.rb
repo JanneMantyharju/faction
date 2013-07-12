@@ -168,6 +168,78 @@ module Faction #:nodoc:
       authenticated_crowd_call(:add_principal_to_group, principal, group) && nil
     end
 
+    def remove_principal(principal)
+      authenticated_crowd_call(:remove_principal, principal)
+    end
+
+    def add_principal(username, password, description, is_active, attributes)
+      body = '<?xml version="1.0" encoding="utf-8" ?>
+        <env:Envelope xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+            xmlns:env="http://schemas.xmlsoap.org/soap/envelope/">
+        <env:Body>
+        <n1:addPrincipal xmlns:n1="urn:SecurityServer">
+        <n1:in0 xmlns:n2="http://authentication.integration.crowd.atlassian.com">
+          <n2:name>%{app_name}</n2:name>
+          <n2:token>%{app_token}</n2:token>
+        </n1:in0>
+        <n1:in1 xmlns:n3="http://soap.integration.crowd.atlassian.com">
+          <n3:active>%{active}</n3:active>
+          <n3:attributes>
+            <n3:SOAPAttribute>
+              <n3:name>mail</n3:name>
+              <n3:values>
+                <n1:string>%{email}</n1:string>
+              </n3:values>
+            </n3:SOAPAttribute>
+            <n3:SOAPAttribute>
+              <n3:name>sn</n3:name>
+              <n3:values>
+                <n1:string>%{last_name}</n1:string>
+              </n3:values>
+            </n3:SOAPAttribute>
+            <n3:SOAPAttribute>
+              <n3:name>givenName</n3:name>
+              <n3:values>
+                <n1:string>%{first_name}</n1:string>
+              </n3:values>
+            </n3:SOAPAttribute>
+          </n3:attributes>
+          <n3:description>%{description}</n3:description>
+          <n3:name>%{user_name}</n3:name>
+        </n1:in1>
+        <n1:in2 xmlns:n4="http://authentication.integration.crowd.atlassian.com">
+          <n4:credential>%{password}</n4:credential>
+          <n4:encryptedCredential>false</n4:encryptedCredential>
+        </n1:in2>
+        </n1:addPrincipal>
+        </env:Body>
+        </env:Envelope>' % {
+        :app_name => @app_name, 
+        :app_token => @app_token, 
+        :active => is_active, 
+        :email => attributes['mail'], 
+        :last_name => attributes['sn'],
+        :first_name => attributes['givenName'],
+        :description => description,
+        :user_name => username,
+        :password => password
+      }
+      ensure_app_token!
+      begin
+        response = @crowd.call("add_principal!") {|soap| soap.xml = body}
+      rescue Savon::SOAPFault => f
+        # retry once
+        @app_token = nil
+        ensure_app_token!
+        begin
+          response = @crowd.call("add_principal!") {|soap| soap.xml = body}
+        rescue Savon::SOAPFault => f
+          raise AuthenticationException, f.message
+        end      
+      end
+    end
+
     private
 
     CROWD_NAMESPACES = {
